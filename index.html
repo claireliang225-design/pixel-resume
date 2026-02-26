@@ -216,24 +216,83 @@
             cursor: not-allowed;
         }
 
-        .nav-dots {
+        /* 进度条 */
+        .progress-bar-wrapper {
+            width: 100%;
+            max-width: 320px;
+            margin-top: 24px;
             display: flex;
+            flex-direction: column;
             gap: 8px;
-            margin-top: 40px;
         }
 
-        .dot {
-            width: 4px;
-            height: 4px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 50%;
-            transition: 0.4s;
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: rgba(255,255,255,0.3);
+            text-transform: uppercase;
         }
 
-        .dot.active {
-            width: 24px;
-            background: #FFF;
+        .progress-labels span.active-label {
+            color: rgba(255,255,255,0.9);
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 2px;
+            background: rgba(255,255,255,0.1);
             border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, rgba(255,255,255,0.4), #fff);
+            border-radius: 2px;
+            transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+            width: 33.3%;
+        }
+
+        /* 收尾仪式 - 全屏发光 */
+        .completion-flash {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, rgba(180,160,255,0.35) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 200;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        .completion-flash.flash {
+            opacity: 1;
+        }
+
+        /* 涟漪层覆盖在 canvas 上 */
+        .ripple-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border-radius: 32px;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .ripple-circle {
+            position: absolute;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.6);
+            transform: translate(-50%, -50%) scale(0);
+            animation: rippleOut 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        @keyframes rippleOut {
+            0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.8; }
+            100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
         }
 
         .modal-overlay {
@@ -329,11 +388,17 @@
         <div class="visual-side">
             <div class="avatar-wrapper">
                 <canvas id="pixelCanvas"></canvas>
+                <div class="ripple-overlay" id="rippleOverlay"></div>
             </div>
-            <div class="nav-dots">
-                <div class="dot active"></div>
-                <div class="dot"></div>
-                <div class="dot"></div>
+            <div class="progress-bar-wrapper">
+                <div class="progress-labels">
+                    <span id="label0" class="active-label">Phase 01</span>
+                    <span id="label1">Phase 02</span>
+                    <span id="label2">Phase 03</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
             </div>
         </div>
 
@@ -366,6 +431,8 @@
         </div>
     </div>
 
+    <div class="completion-flash" id="completionFlash"></div>
+
     <div id="contactModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-title">期待与您沟通</div>
@@ -396,6 +463,8 @@
         
         const PIXEL_SIZE = 12;
         let beads = [];
+        let breatheAnimId = null;
+        let breatheTime = 0;
 
         class Bead {
             constructor(x, y, r, g, b, targetY) {
@@ -483,7 +552,24 @@
                 requestAnimationFrame(animate);
             } else {
                 document.getElementById('actionBtn').disabled = false;
+                checkUnlockLabels();
             }
+        }
+
+        // 涟漪效果：在 canvas 中心位置扩散
+        function triggerRipple() {
+            const overlay = document.getElementById('rippleOverlay');
+            const ripple = document.createElement('div');
+            ripple.className = 'ripple-circle';
+            // 随机在画面中心区域生成涟漪
+            const cx = 40 + Math.random() * 20;
+            const cy = 40 + Math.random() * 20;
+            ripple.style.left = cx + '%';
+            ripple.style.top = cy + '%';
+            ripple.style.width = '80px';
+            ripple.style.height = '80px';
+            overlay.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 1300);
         }
 
         function startStageAnimation(stageIdx) {
@@ -499,14 +585,40 @@
             animate();
         }
 
+        // 仅切换右侧文案和进度标签，不触发拼豆动画（用于 Phase 标签回溯点击）
+        function switchTextOnly(idx) {
+            currentStage = idx;
+            document.querySelectorAll('.stage').forEach((s, i) => {
+                s.classList.toggle('active', i === currentStage);
+            });
+            document.getElementById('actionBtn').textContent = stages[currentStage].label;
+            const pct = ((currentStage + 1) / stages.length * 100).toFixed(1);
+            document.getElementById('progressFill').style.width = pct + '%';
+            for (let i = 0; i < 3; i++) {
+                document.getElementById('label' + i).classList.toggle('active-label', i === currentStage);
+            }
+        }
+
         function updateUI() {
             document.querySelectorAll('.stage').forEach((s, i) => {
                 s.classList.toggle('active', i === currentStage);
             });
             document.getElementById('actionBtn').textContent = stages[currentStage].label;
-            document.querySelectorAll('.dot').forEach((d, i) => {
-                d.classList.toggle('active', i === currentStage);
-            });
+
+            // 更新进度条
+            const pct = ((currentStage + 1) / stages.length * 100).toFixed(1);
+            document.getElementById('progressFill').style.width = pct + '%';
+            for (let i = 0; i < 3; i++) {
+                const lbl = document.getElementById('label' + i);
+                lbl.classList.toggle('active-label', i === currentStage);
+            }
+
+            // 切换阶段时触发涟漪（非第一次加载）
+            if (currentStage > 0) {
+                setTimeout(triggerRipple, 400);
+                setTimeout(triggerRipple, 700);
+            }
+
             startStageAnimation(currentStage);
         }
 
@@ -527,6 +639,26 @@
                 document.getElementById('contactModal').classList.add('active');
             }
         };
+
+        // Phase 标签点击：拼豆完成后（到达 phase03），允许点击 01/02 仅切换文案
+        let phaseLabelsClickable = false;
+        for (let i = 0; i < 3; i++) {
+            document.getElementById('label' + i).addEventListener('click', () => {
+                if (!phaseLabelsClickable) return;
+                switchTextOnly(i);
+            });
+        }
+
+        // 监听拼豆完成（第三阶段落定后）解锁标签点击
+        function checkUnlockLabels() {
+            if (currentStage === 2) {
+                phaseLabelsClickable = true;
+                // 给标签加上可点击的视觉提示
+                for (let i = 0; i < 3; i++) {
+                    document.getElementById('label' + i).style.cursor = 'pointer';
+                }
+            }
+        }
 
         document.getElementById('closeModalBtn').onclick = () => {
             document.getElementById('contactModal').classList.remove('active');

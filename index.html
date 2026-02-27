@@ -382,6 +382,11 @@
             overflow: hidden;
             z-index: 10;
         }
+        /* ── 移动端全局优化 ── */
+        * { -webkit-tap-highlight-color: transparent; }
+        body { touch-action: pan-y; }
+        canvas { touch-action: none; }
+
         @media (max-width: 850px) {
             .container {
                 grid-template-columns: 1fr;
@@ -393,6 +398,26 @@
             .btn-group { justify-content: center; }
             .nav-dots { justify-content: center; }
             .avatar-wrapper { width: 260px; height: 260px; }
+        }
+
+        @media (max-width: 600px) {
+            body {
+                overflow-y: auto;
+                align-items: flex-start;
+                padding: 16px;
+            }
+            .container {
+                gap: 28px;
+                padding: 24px 18px;
+                border-radius: 24px;
+            }
+            .avatar-wrapper { width: 200px; height: 200px; }
+            .progress-bar-wrapper { max-width: 200px; }
+            .title { font-size: 22px; }
+            .quote { font-size: 16px; }
+            .desc { font-size: 13px; }
+            .btn-group { flex-wrap: wrap; }
+            button { padding: 13px 20px; font-size: 13px; }
         }
     </style>
 </head>
@@ -853,9 +878,13 @@
                 const rect = magCanvas.getBoundingClientRect();
                 const scaleX = magCanvas.width / rect.width;
                 const scaleY = magCanvas.height / rect.height;
+                // 支持 touch 事件（取第一个触点）
+                const src = (e.touches && e.touches.length > 0) ? e.touches[0]
+                          : (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0]
+                          : e;
                 return {
-                    x: (e.clientX - rect.left) * scaleX,
-                    y: (e.clientY - rect.top) * scaleY,
+                    x: (src.clientX - rect.left) * scaleX,
+                    y: (src.clientY - rect.top) * scaleY,
                 };
             }
 
@@ -876,6 +905,35 @@
                 const pos = getCanvasPos(e);
                 mouseX = pos.x;
                 mouseY = pos.y;
+            });
+
+            // ── 触屏支持：touchstart / touchmove / touchend ──
+            magCanvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (guideActive) stopGuideAnimation();
+                isHovering = true;
+                clearInterval(tagTimer);
+                pickTags();
+                tagTimer = setInterval(pickTags, 1500);
+                const pos = getCanvasPos(e);
+                mouseX = pos.x;
+                mouseY = pos.y;
+            }, { passive: false });
+
+            magCanvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (!isHovering) return;
+                const pos = getCanvasPos(e);
+                mouseX = pos.x;
+                mouseY = pos.y;
+            }, { passive: false });
+
+            magCanvas.addEventListener('touchend', () => {
+                isHovering = false;
+                clearInterval(tagTimer);
+                currentTags = [];
+                mouseX = -9999; mouseY = -9999;
+                magCtx.clearRect(0, 0, magCanvas.width, magCanvas.height);
             });
 
             // 标签使用系统字体，无需加载外部字体
